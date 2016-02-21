@@ -352,15 +352,24 @@ static void read_configuration( const char *fch){
 			if(verbose)
 				printf("\tPort : %d\n", last_section->Ups.port);
 		} else if((arg = striKWcmp(l,"Var="))){
-			if(!last_section || last_section->common.section_type != MSEC_UPS){
-				fputs("*F* Configuration issue : Var directive outside a UPS section\n", stderr);
+			if(!last_section ||(
+					last_section->common.section_type != MSEC_UPS &&
+					last_section->common.section_type != MSEC_FREEBOX
+					)){
+				fputs("*F* Configuration issue : Var directive outside a UPS or Freebox section\n", stderr);
 				exit(EXIT_FAILURE);
 			}
 			struct var *v = malloc(sizeof(struct var));
 			assert(v);
 			assert( v->name = strdup( removeLF(arg) ));
-			v->next = last_section->Ups.var_list;
-			last_section->Ups.var_list = v;
+			if ( last_section->common.section_type == MSEC_UPS ){
+				v->next = last_section->Ups.var_list;
+				last_section->Ups.var_list = v;
+			}
+			if ( last_section->common.section_type == MSEC_FREEBOX ){
+				v->next = last_section->FreeBox.var_list;
+				last_section->FreeBox.var_list = v;
+			}
 			if(verbose)
 				printf("\tVar : '%s'\n", v->name);
 		} else if((arg = striKWcmp(l,"Func="))){

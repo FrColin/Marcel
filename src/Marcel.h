@@ -62,6 +62,7 @@ union CSection {
 		pthread_t thread;	
 		const char *topic;	/* Root of the topics to publish to */
 		const char *file;	/* file containing app_token */
+		struct var *var_list;	/* List of variables to read */
 	} FreeBox;
 	struct _UPS {
 		union CSection *next;

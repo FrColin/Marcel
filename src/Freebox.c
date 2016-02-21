@@ -155,7 +155,7 @@ static void  _check_freebox_api() {
 static json_object * call_freebox_api(const char* api_url, json_object *data) {
 	char url[MAXLINE];
  
-	sprintf(url, "%s%sv%c/%s", FREEBOX_URL, _API_BASE_URL,_API_VERSION, api_url);
+	sprintf(url, "%s%sv%c/%s/", FREEBOX_URL, _API_BASE_URL,_API_VERSION, api_url);
 	json_object * answer = _freebox_api_request(url,data);
 	json_object *result = _check_success(url,answer);
 	if (!result ) return NULL;
@@ -167,7 +167,7 @@ static int login_freebox(char *app_id, char *app_version, char * app_token) {
 	struct json_object *challenge = NULL;
 	const char *strchallenge = NULL;
 	unsigned char digest[20];
-	char password[40];
+	char password[42];
 	int md_len = 20;
 	json_object * answer = call_freebox_api("login", NULL);
 	if (!answer) return 0;
@@ -180,6 +180,7 @@ static int login_freebox(char *app_id, char *app_version, char * app_token) {
 	
 	// Be careful of the length of string with the choosen hash engine. SHA1 produces a 20-byte hash value which rendered as 40 characters.
 	// Change the length accordingly with your choosen hash engine
+	memset( password, sizeof(password), 0);
 	for(int i = 0; i < md_len; i++)
 		sprintf(&password[i*2], "%02x", (unsigned int)digest[i]);
 
@@ -188,7 +189,7 @@ static int login_freebox(char *app_id, char *app_version, char * app_token) {
 	//json_object_object_add(data, "app_version", json_object_new_string(app_version));
 	json_object_object_add(data, "password", json_object_new_string(password));
  
-	answer=call_freebox_api ("login/session/",  data );
+	answer=call_freebox_api ("login/session",  data );
 	if (!answer) return 0;
 	struct json_object *session_token = NULL;
 	json_object_object_get_ex( answer, "session_token", &session_token);
@@ -242,7 +243,7 @@ static int authorize_application (const char *app_id ,const char *app_name,const
 	return success;
 
 }
-int loadFreeBoxApptoken( const char *file ){
+static int loadFreeBoxApptoken( const char *file ){
    FILE *fp;
    char str[80];
 
@@ -265,7 +266,7 @@ int loadFreeBoxApptoken( const char *file ){
    
    return(0);
 }
-int saveFreeBoxApptoken( const char *file ){
+static int saveFreeBoxApptoken( const char *file ){
 	FILE *fp;
 	char str[80];
 
@@ -281,9 +282,57 @@ int saveFreeBoxApptoken( const char *file ){
 
 	return(0);
 }
-
-void *process_Freebox(void *actx){
+// translate JSON tree in MQTT topics
+static void publish_json_object (json_object *jobj, const char * topic, const char * subtopic);
+static void publish_json_array (json_object *jobj, const char * topic, const char * subtopic)
+{
+	char object_topic[MAXLINE];
+	int arraylen = json_object_array_length(jobj); /*Getting the length of the array*/
+	int i;
+	json_object * jvalue;
+	for (i=0; i< arraylen; i++){
+		sprintf(object_topic,"%s/%d", subtopic, i);
+		jvalue = json_object_array_get_idx(jobj, i); /*Getting the array element at position i*/
+		publish_json_object (jvalue, topic, object_topic);
+	}
+}
+static void publish_json_object (json_object *jobj, const char * topic, const char * subtopic)
+{
+	enum json_type obj_type;
+	enum json_type key_type;
+	struct json_object *entry = NULL;
+	const char * value;
+	int lm;
 	char l[MAXLINE];
+	char object_topic[MAXLINE];
+	obj_type = json_object_get_type(jobj);
+	if ( obj_type == json_type_object ) {
+	json_object_object_foreach(jobj, key, val) {
+			key_type = json_object_get_type(val);
+			 switch (key_type) {
+				 case json_type_null:
+				 break;
+				 case json_type_object: 
+					sprintf(object_topic,"%s/%s", subtopic, key);
+					publish_json_object (val, topic, object_topic);
+				 break;
+				 case json_type_array: 
+					printf("Freebox : TODO %s json_type_array \n",key);
+				 break;
+				 default:
+					value = json_object_get_string(val);
+					lm = sprintf(l, "%s/%s/%s", topic, subtopic, key) + 2;
+					assert( lm+1 < MAXLINE-10 );
+					strcpy( l+lm, value);
+					mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
+			 }
+		}
+	}
+	if ( obj_type == json_type_array ) {
+		publish_json_array(jobj, topic, subtopic );
+	}
+}
+void *process_Freebox(void *actx){
 	char hostname[HOST_NAME_MAX];
     struct _FreeBox *ctx = actx;	/* Only to avoid zillions of cast */
 	
@@ -330,151 +379,17 @@ void *process_Freebox(void *actx){
 	
 	for(;;){	/* Infinite loop to process data */
 		json_object *answer;
-		struct json_object *entry = NULL;
-		const char * value;
-		int lm;
-		answer=call_freebox_api("connection/", NULL);
-		if ( !answer ) {
-			fprintf(stderr, "*E* connection/ error : no answer\n");
-			continue;
-		}
-		json_object_object_foreach(answer, key, val) {
-			
-			value = json_object_get_string(val);
-			lm = sprintf(l, "%s/%s/%s", ctx->topic, "connection", key) + 2;
-			assert( lm+1 < MAXLINE-10 );
-            strcpy( l+lm, value);
-			mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-		}
-		
-
-#ifdef OLD
-		if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0){
-/*AF : Send error topic */
-			perror("*E* Connecting");
-		} else if( send(sockfd, FBX_REQ, strlen(FBX_REQ), 0) == -1 ){
-/*AF : Send error topic */
-			perror("*E* Sending");
-		} else while( socketreadline(sockfd, l, sizeof(l)) != -1 ){
-			if(strstr(l, "ATM")){
-				int u, d, lm;
-				if(sscanf(l+25,"%d", &d) != 1) d=-1;
-				if(sscanf(l+44,"%d", &u) != 1) u=-1;
-
-				lm = sprintf(l, "%s/DownloadATM", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadATM", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-			} else if(striKWcmp(l, "  Marge de bruit")){
-				float u, d; 
-				int lm;
-
-				if(sscanf(l+25,"%f", &d) != 1) d = -1;
-				if(sscanf(l+44,"%f", &u) != 1) u = -1;
-
-				lm = sprintf(l, "%s/DownloadMarge", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%.2f", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadMarge", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%.2f", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-			} else if(striKWcmp(l, "  WAN")){
-				int u, d, lm;
-
-				if(sscanf(l+40,"%d", &d) != 1) d = -1;
-				if(sscanf(l+55,"%d", &u) != 1) u = -1;
-
-				lm = sprintf(l, "%s/DownloadWAN", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadWAN", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-			} else if(striKWcmp(l, "  Ethernet")){
-				int u, d, lm;
-
-				if(sscanf(l+40,"%d", &d) != 1) d = -1;
-				if(sscanf(l+55,"%d", &u) != 1) u = -1;
-
-				lm = sprintf(l, "%s/DownloadTV", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadTV", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-			} else if(striKWcmp(l, "  USB")){
-				int u, d, lm;
-
-				if(sscanf(l+40,"%d", &d) != 1) d = -1;
-				if(sscanf(l+55,"%d", &u) != 1) u = -1;
-
-				lm = sprintf(l, "%s/DownloadUSB", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadUSB", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-			} else if(striKWcmp(l, "  Switch")){
-				int u, d, lm;
-
-				if(sscanf(l+40,"%d", &d) != 1) d = -1;
-				if(sscanf(l+55,"%d", &u) != 1) u = -1;
-
-				lm = sprintf(l, "%s/DownloadLan", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", d );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
-
-				lm = sprintf(l, "%s/UploadLan", ctx->topic) + 2;
-				assert( lm+1 < MAXLINE-10 );	/* Enough space for the response ? */
-				sprintf( l+lm, "%d", u );
-				mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
-				if(verbose)
-					printf("Freebox : %s -> %s\n", l, l+lm);
+		for(struct var *v = ctx->var_list; v; v = v->next){
+			answer=call_freebox_api(v->name, NULL);
+			if ( !answer ) {
+				fprintf(stderr, "*E* %s error : no answer\n",v->name);
+				continue;
 			}
+			if ( verbose )
+				printf("Freebox : %s -> %s \n", v->name, json_object_get_string(answer));
+			
+			publish_json_object( answer, ctx->topic, v->name);
 		}
-
-		close(sockfd);
-#endif
 		sleep( ctx->sample );
 	}
 
