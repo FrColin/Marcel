@@ -157,7 +157,7 @@ static int lmVersion(lua_State *L){
 	return 1;
 }
 
-static const struct luaL_reg MarcelLib [] = {
+static const struct luaL_Reg MarcelLib [] = {
 	{"SendMessage", lmSendMsg},
 	{"RiseAlert", lmRiseAlert},		/* ... and send only a mail */
 	{"RiseAlert", lmRiseAlertSMS},	/* ... and send both a mail and a SMS */
@@ -180,7 +180,7 @@ void init_Lua( const char *conffile ){
 		}
 		free( copy_cf );
 
-		L = lua_open();		/* opens Lua */
+		L = luaL_newstate();		/* opens Lua */
 		luaL_openlibs(L);	/* and it's libraries */
 		atexit(clean_lua);
 
@@ -188,8 +188,8 @@ void init_Lua( const char *conffile ){
 		lua_pushstring(L, "__index");
 		lua_pushvalue(L, -2);
 		lua_settable(L, -3);	/* metatable.__index = metatable */
-		luaL_register(L,"Marcel", MarcelLib);
-
+		luaL_setfuncs(L,MarcelLib,0);
+		lua_setglobal(L, "Marcel");
 		int err = luaL_loadfile(L, cfg.luascript) || lua_pcall(L, 0, 0, 0);
 		if(err){
 			fprintf(stderr, "*F* '%s' : %s\n", cfg.luascript, lua_tostring(L, -1));

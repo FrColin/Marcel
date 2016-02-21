@@ -5,7 +5,7 @@ gotoall: all
 
 
 #The compiler (may be customized for compiler's options).
-cc=gcc -Wall -O2 -DFREEBOX -DUPS -DMETEO -lcurl -lpthread -lpaho-mqtt3c -DLUA -llua `pkg-config --cflags json-c` `pkg-config --libs json-c` -std=c99
+cc=gcc -O2 -g -DFREEBOX -DUPS -DMETEO -lcurl -lpthread -lownet -lmosquitto -lupsclient `pkg-config --libs libssl` -DLUA `pkg-config --cflags lua5.2` `pkg-config --libs lua5.2`  `pkg-config --cflags json-c` `pkg-config --libs json-c` -std=c99
 
 Alerting.o : Alerting.c Marcel.h Alerting.h DList.h Makefile 
 	$(cc) -c -o Alerting.o Alerting.c 
@@ -45,3 +45,6 @@ UPS.o : UPS.c UPS.h Marcel.h MQTT_tools.h Makefile
   Freebox.o Every.o DList.o DeadPublisherDetection.o Alerting.o 
 
 all: ../Marcel 
+
+clean: 
+	rm *.o ../Marcel

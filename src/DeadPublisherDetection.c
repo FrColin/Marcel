@@ -78,7 +78,7 @@ void *process_DPD(void *actx){
 
 				msg_len = sprintf( msg, msg_info, ctx->sample );
 
-				if( mqttpublish( cfg.client, topic, msg_len, msg, 0 ) == MQTTCLIENT_SUCCESS ){
+				if( mqttpublish( cfg.client, topic, msg_len, msg, 0 ) == MOSQ_ERR_SUCCESS ){
 					if(verbose)
 						printf("*I* Alert raises for DPD '%s'\n", ctx->errorid);
 						ctx->inerror = 1;
@@ -97,7 +97,7 @@ void *process_DPD(void *actx){
 					char topic[strlen(ctx->errorid) + 7]; /* "Alert/" + 1 */
 					strcpy( topic, "Alert/" );
 					strcat( topic, ctx->errorid );
-					if( mqttpublish( cfg.client, topic, 1, "E", 0 ) == MQTTCLIENT_SUCCESS ){
+					if( mqttpublish( cfg.client, topic, 1, "E", 0 ) == MOSQ_ERR_SUCCESS ){
 						if(verbose)
 							printf("*I* Alert corrected for DPD '%s'\n", ctx->errorid);
 						ctx->inerror = 0;

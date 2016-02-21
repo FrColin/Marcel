@@ -13,7 +13,8 @@
 #define _POSIX_C_SOURCE 200112L	/* Otherwise some defines/types are not defined with -std=c99 */
 
 #include <pthread.h>
-#include <MQTTClient.h> /* PAHO library needed */ 
+#include <mosquitto.h> /* mosquitto library needed */ 
+
 
 #define VERSION "4.4"	/* Need to stay numerique as exposed to Lua */
 
@@ -60,6 +61,7 @@ union CSection {
 		int sample;			/* delay b/w 2 samples */
 		pthread_t thread;	
 		const char *topic;	/* Root of the topics to publish to */
+		const char *file;	/* file containing app_token */
 	} FreeBox;
 	struct _UPS {
 		union CSection *next;
@@ -107,15 +109,16 @@ union CSection {
 
 struct Config {
 	union CSection *sections;	/* Sections' list */
-	const char *Broker;		/* Broker's URL */
-	const char *ClientID;	/* Marcel client id : must be unique among a broker clients */
-	MQTTClient client;
-	int DPDlast;			/* Dead Publisher Detect are grouped at the end of sections list */
-	int ConLostFatal;		/* Die if broker connection is lost */
+	const char *Broker;			/* Broker's host */
+	int BrokerPort;				/* Broker's port */
+	const char *ClientID;		/* Marcel client id : must be unique among a broker clients */
+	struct mosquitto * client;
+	int DPDlast;				/* Dead Publisher Detect are grouped at the end of sections list */
+	int ConLostFatal;			/* Die if broker connection is lost */
 	union CSection *first_DPD;	/* Pointer to the first DPD */
-	const char *SMSurl;		/* Where to send SMS */
-	const char *AlertCmd;	/* External command to send alerts */
-	const char *luascript;	/* file containing Lua functions */
+	const char *SMSurl;			/* Where to send SMS */
+	const char *AlertCmd;		/* External command to send alerts */
+	const char *luascript;		/* file containing Lua functions */
 } cfg;
 
 	/* Helper functions */

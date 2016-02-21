@@ -42,14 +42,6 @@
  *	31/01/2016	- LF - 4.3 - Add AlertCommand
  *	04/02/2016	- LF - 4.4 - Alert can send only a mail
  */
-#include "Marcel.h"
-#include "Freebox.h"
-#include "UPS.h"
-#include "DeadPublisherDetection.h"
-#include "MQTT_tools.h"
-#include "Alerting.h"
-#include "Every.h"
-#include "Meteo.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +59,16 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <ownetapi.h>
+
+#include "Marcel.h"
+#include "Freebox.h"
+#include "UPS.h"
+#include "DeadPublisherDetection.h"
+#include "MQTT_tools.h"
+#include "Alerting.h"
+#include "Every.h"
+#include "Meteo.h"
 
 int verbose = 0;
 
@@ -141,7 +143,8 @@ static void read_configuration( const char *fch){
 	union CSection *last_section=NULL;
 
 	cfg.sections = NULL;
-	cfg.Broker = "tcp://localhost:1883";
+	cfg.Broker = "localhost";
+	cfg.BrokerPort = 1883;
 	cfg.ClientID = "Marcel";
 	cfg.client = NULL;
 	cfg.DPDlast = 0;
@@ -169,6 +172,10 @@ static void read_configuration( const char *fch){
 			assert( cfg.Broker = strdup( removeLF(arg) ) );
 			if(verbose)
 				printf("Broker : '%s'\n", cfg.Broker);
+		} else if((arg = striKWcmp(l,"BrokerPort="))){
+			assert( cfg.BrokerPort = atoi( removeLF(arg) ) );
+			if(verbose)
+				printf("BrokerPort : '%d'\n", cfg.BrokerPort);
 		} else if((arg = striKWcmp(l,"ClientID="))){
 			assert( cfg.ClientID = strdup( removeLF(arg) ) );
 			if(verbose)
@@ -311,6 +318,12 @@ static void read_configuration( const char *fch){
 			if(verbose)
 				puts("Crash if the broker connection is lost");
 		} else if((arg = striKWcmp(l,"File="))){
+			if( last_section->common.section_type == MSEC_FREEBOX){
+				assert( last_section->FreeBox.file = strdup( removeLF(arg) ));
+			if(verbose)
+				printf("\tFile : '%s'\n", last_section->FreeBox.file);
+			}
+			else {
 			if(!last_section || last_section->common.section_type != MSEC_FFV){
 				fputs("*F* Configuration issue : File directive outside a FFV section\n", stderr);
 					exit(EXIT_FAILURE);
@@ -318,6 +331,7 @@ static void read_configuration( const char *fch){
 			assert( last_section->FFV.file = strdup( removeLF(arg) ));
 			if(verbose)
 				printf("\tFile : '%s'\n", last_section->FFV.file);
+			}
 		} else if((arg = striKWcmp(l,"Host="))){
 			if(!last_section || last_section->common.section_type != MSEC_UPS){
 				fputs("*F* Configuration issue : Host directive outside a UPS section\n", stderr);
@@ -428,7 +442,7 @@ static void read_configuration( const char *fch){
 	/*
 	 * Broker related functions
 	 */
-static int msgarrived(void *actx, char *topic, int tlen, MQTTClient_message *msg){
+static void msgarrived(struct mosquitto *mosq, void *obj,  const struct mosquitto_message *msg){
 	union CSection *DPD = cfg.DPDlast ? cfg.first_DPD : cfg.sections;
 	const char *aid;
 	char payload[msg->payloadlen + 1];
@@ -437,38 +451,34 @@ static int msgarrived(void *actx, char *topic, int tlen, MQTTClient_message *msg
 	payload[msg->payloadlen] = 0;
 
 	if(verbose)
-		printf("*I* message arrival (topic : '%s', msg : '%s')\n", topic, payload);
+		printf("*I* message arrival (topic : '%s', msg : '%s')\n", msg->topic, payload);
 
-	if((aid = striKWcmp(topic,"Alert/")))
+	if((aid = striKWcmp(msg->topic,"Alert/")))
 		rcv_alert( aid, payload );
 	else for(; DPD; DPD = DPD->common.next){
 		if(DPD->common.section_type != MSEC_DEADPUBLISHER)
 			continue;
-		if(!mqtttokcmp(DPD->DeadPublisher.topic, topic)){	/* Topic found */
+		if(!mqtttokcmp(DPD->DeadPublisher.topic, msg->topic)){	/* Topic found */
 			uint64_t v = 1;
 			if(write( DPD->DeadPublisher.rcv, &v, sizeof(v) ) == -1)	/* Signal it */
 				perror("eventfd to signal message reception");
 
 #ifdef LUA
-			execUserFuncDeadPublisher( &(DPD->DeadPublisher), topic, payload );
+			execUserFuncDeadPublisher( &(DPD->DeadPublisher), msg->topic, payload );
 #endif
 		}
 	}
-
-	MQTTClient_freeMessage(&msg);
-	MQTTClient_free(topic);
-	return 1;
 }
 
-static void connlost(void *ctx, char *cause){
-	printf("*W* Broker connection lost due to %s\n", cause);
+static void connlost(struct mosquitto *mosq, void *obj, int cause){
+	printf("*W* Broker connection lost due to %d\n", cause);
 	if(cfg.ConLostFatal)
 		exit(EXIT_FAILURE);
 }
 
 static void brkcleaning(void){	/* Clean broker stuffs */
-	MQTTClient_disconnect(cfg.client, 10000);	/* 10s for the grace period */
-	MQTTClient_destroy(&cfg.client);
+	mosquitto_disconnect(cfg.client);	/* 10s for the grace period */
+	mosquitto_destroy(cfg.client);
 }
 
 	/*
@@ -476,9 +486,11 @@ static void brkcleaning(void){	/* Clean broker stuffs */
 	 */
 static void *process_FFV(void *actx){
 	struct _FFV *ctx = actx;	/* Only to avoid zillions of cast */
-	FILE *f;
-	char l[MAXLINE];
 
+	char l[MAXLINE];
+    int owh = OWNET_init( "" );
+	OWNET_set_temperature_scale('C');
+	
 		/* Sanity checks */
 	if(!ctx->topic){
 		fputs("*E* configuration error : no topic specified, ignoring this section\n", stderr);
@@ -495,7 +507,7 @@ static void *process_FFV(void *actx){
 	for(;;){	/* Infinite loop to process messages */
 		ctx = actx;	/* Back to the 1st one */
 		for(;;){
-			if(!(f = fopen( ctx->file, "r" ))){
+			if(OWNET_present( owh, ctx->file) != 0 ){
 				if(verbose)
 					perror( ctx->file );
 				if(strlen(ctx->topic) + 7 < MAXLINE){  /* "/Alarm" +1 */
@@ -524,7 +536,10 @@ static void *process_FFV(void *actx){
 				}
 			} else {
 				float val;
-				if(!fscanf(f, "%f", &val)){
+				char * read_data = NULL ;
+    
+				int read_length = OWNET_read(owh, ctx->file, &read_data);
+				if(read_length < 0 || !sscanf(read_data, "%f", &val)){
 					if(verbose)
 						printf("FFV : %s -> Unable to read a float value.\n", ctx->topic);
 				} else {	/* Only to normalize the response */
@@ -533,8 +548,8 @@ static void *process_FFV(void *actx){
 					mqttpublish(cfg.client, ctx->topic, strlen(l), l, 0 );
 					if(verbose)
 						printf("FFV : %s -> %f\n", ctx->topic, val);
+					 free( read_data);
 				}
-				fclose(f);
 			}
 
 			if(!(ctx = (struct _FFV *)ctx->next))	/* It was the last entry */
@@ -556,8 +571,7 @@ static void handleInt(int na){
 int main(int ac, char **av){
 	const char *conf_file = DEFAULT_CONFIGURATION_FILE;
 	pthread_attr_t thread_attr;
-	MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
-
+	
 	if(ac > 0){
 		int i;
 		for(i=1; i<ac; i++){
@@ -591,13 +605,13 @@ int main(int ac, char **av){
 		exit(EXIT_FAILURE);
 	}
 
-		/* Connecting to the broker */
-	conn_opts.reliable = 0;
-	MQTTClient_create( &cfg.client, cfg.Broker, cfg.ClientID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-	MQTTClient_setCallbacks( cfg.client, NULL, connlost, msgarrived, NULL);
-
-	switch( MQTTClient_connect( cfg.client, &conn_opts) ){
-	case MQTTCLIENT_SUCCESS : 
+	/* Connecting to the broker */
+	mosquitto_lib_init();
+	cfg.client = mosquitto_new( cfg.ClientID, true, NULL);
+	mosquitto_message_callback_set( cfg.client,  msgarrived);
+	mosquitto_disconnect_callback_set( cfg.client, connlost);
+	switch( mosquitto_connect(cfg.client, cfg.Broker, cfg.BrokerPort, 60) ){
+	case MOSQ_ERR_SUCCESS : 
 		break;
 	case 1 : fputs("Unable to connect : Unacceptable protocol version\n", stderr);
 		exit(EXIT_FAILURE);
@@ -682,7 +696,7 @@ int main(int ac, char **av){
 			} else if(!s->common.sample && !s->DeadPublisher.funcname){
 				fputs("*E* DeadPublisher section without sample time or user function defined : ignoring ...\n", stderr);
 			} else {
-				if(MQTTClient_subscribe( cfg.client, s->common.topic, 0 ) != MQTTCLIENT_SUCCESS ){
+				if(mosquitto_subscribe( cfg.client, NULL, s->common.topic, 0 ) != MOSQ_ERR_SUCCESS ){
 					fprintf(stderr, "Can't subscribe to '%s'\n", s->common.topic );
 				} else if(pthread_create( &(s->common.thread), &thread_attr, process_DPD, s) < 0){
 					fputs("*F* Can't create a processing thread\n", stderr);

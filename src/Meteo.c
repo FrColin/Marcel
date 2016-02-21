@@ -114,48 +114,52 @@ static void Meteo3H(struct _Meteo *ctx){
 			if(jerr != json_tokener_success)
 				fprintf(stderr, "*E* Querying meteo : %s\n", json_tokener_error_desc(jerr));
 			else {
-				struct json_object *wlist = json_object_object_get( jobj, "list");
+				struct json_object *wlist = NULL;
+				json_object_object_get_ex( jobj, "list", &wlist);
 				if(wlist){
 					int nbre = json_object_array_length(wlist);
 					char l[MAXLINE];
 					for(int i=0; i<nbre; i++){
-						struct json_object *wo = json_object_array_get_idx( wlist, i );	/* Weather's object */
-						struct json_object *wod = json_object_object_get( wo, "dt" );	/* Weather's data */
+						struct json_object *wo = NULL;
+						struct json_object *wod = NULL;
+						struct json_object *swod = NULL;
+						wo = json_object_array_get_idx( wlist, i );	/* Weather's object */
+						json_object_object_get_ex( wo, "dt" , &wod );	/* Weather's data */
 
 						int lm = sprintf(l, "%s/%d/time", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%u", json_object_get_int(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "main" );
-						struct json_object *swod = json_object_object_get( wod, "temp");
+						json_object_object_get_ex( wo, "main", &wod );
+						json_object_object_get_ex( wod, "temp", &swod);
 						lm = sprintf(l, "%s/%d/temperature", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "pressure");
+						json_object_object_get_ex( wod, "pressure", &swod);
 						lm = sprintf(l, "%s/%d/pressure", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "humidity");
+						json_object_object_get_ex( wod, "humidity", &swod);
 						lm = sprintf(l, "%s/%d/humidity", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", json_object_get_int(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "weather" );
+						json_object_object_get_ex( wo, "weather", &wod );
 						wod = json_object_array_get_idx( wod, 0 );
-						swod = json_object_object_get( wod, "description");
+						json_object_object_get_ex( wod, "description", &swod);
 						lm = sprintf(l, "%s/%d/weather/description", ctx->topic, i) + 2;
 						const char *ts = json_object_get_string(swod);
 						assert( lm+1 < MAXLINE-strlen(ts) );
 						sprintf( l+lm, "%s", ts);
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "icon");
+						json_object_object_get_ex( wod, "icon", &swod);
 						lm = sprintf(l, "%s/%d/weather/code", ctx->topic, i) + 2;
 						ts = json_object_get_string(swod);
 						assert( lm+1 < MAXLINE-strlen(ts) );
@@ -164,27 +168,27 @@ static void Meteo3H(struct _Meteo *ctx){
 						int dayornight = (ts[2] == 'd');
 
 							/* Accurate weathear icon */
-						swod = json_object_object_get( wod, "id");
+						json_object_object_get_ex( wod, "id", &swod);
 						lm = sprintf(l, "%s/%d/weather/acode", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", convWCode(json_object_get_int(swod), dayornight) );
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "clouds" );
-						swod = json_object_object_get( wod, "all");
+						json_object_object_get_ex( wo, "clouds", &wod );
+						json_object_object_get_ex( wod, "all", &swod);
 						lm = sprintf(l, "%s/%d/clouds", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", json_object_get_int(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "wind" );
-						swod = json_object_object_get( wod, "speed");
+						json_object_object_get_ex( wo, "wind", &wod );
+						json_object_object_get_ex( wod, "speed", &swod);
 						lm = sprintf(l, "%s/%d/wind/speed", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "deg");
+						json_object_object_get_ex( wod, "deg", &swod);
 						lm = sprintf(l, "%s/%d/wind/direction", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
@@ -242,54 +246,58 @@ static void MeteoD(struct _Meteo *ctx){
 			if(jerr != json_tokener_success)
 				fprintf(stderr, "*E* Querying meteo daily : %s\n", json_tokener_error_desc(jerr));
 			else {
-				struct json_object *wlist = json_object_object_get( jobj, "list");
+				struct json_object *wlist = NULL;
+				json_object_object_get_ex( jobj, "list", &wlist);
 				if(wlist){
 					int nbre = json_object_array_length(wlist);
 					char l[MAXLINE];
 					for(int i=0; i<nbre; i++){
-						struct json_object *wo = json_object_array_get_idx( wlist, i );	/* Weather's object */
-						struct json_object *wod = json_object_object_get( wo, "dt" );	/* Weather's data */
+						struct json_object *wo = NULL;
+						struct json_object *wod = NULL;
+						struct json_object *swod = NULL;
+						wo = json_object_array_get_idx( wlist, i );	/* Weather's object */
+						json_object_object_get_ex( wo, "dt", &wod );	/* Weather's data */
 
 						int lm = sprintf(l, "%s/%d/time", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%u", json_object_get_int(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "temp" );
-						struct json_object *swod = json_object_object_get( wod, "day");
+						json_object_object_get_ex( wo, "temp", &wod );
+						json_object_object_get_ex( wod, "day", &swod);
 						lm = sprintf(l, "%s/%d/temperature/day", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "night");
+						json_object_object_get_ex( wod, "night", &swod);
 						lm = sprintf(l, "%s/%d/temperature/night", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "eve");
+						json_object_object_get_ex( wod, "eve", &swod);
 						lm = sprintf(l, "%s/%d/temperature/evening", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "morn");
+						json_object_object_get_ex( wod, "morn", &swod);
 						lm = sprintf(l, "%s/%d/temperature/morning", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(swod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "weather" );
+						json_object_object_get_ex( wo, "weather", &wod );
 						wod = json_object_array_get_idx( wod, 0 );
-						swod = json_object_object_get( wod, "description");
+						json_object_object_get_ex( wod, "description", &swod);
 						lm = sprintf(l, "%s/%d/weather/description", ctx->topic, i) + 2;
 						const char *ts = json_object_get_string(swod);
 						assert( lm+1 < MAXLINE-strlen(ts) );
 						sprintf( l+lm, "%s", ts);
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						swod = json_object_object_get( wod, "icon");
+						json_object_object_get_ex( wod, "icon", &swod);
 						lm = sprintf(l, "%s/%d/weather/code", ctx->topic, i) + 2;
 						ts = json_object_get_string(swod);
 						assert( lm+1 < MAXLINE-strlen(ts) );
@@ -298,37 +306,37 @@ static void MeteoD(struct _Meteo *ctx){
 						int dayornight = (ts[2] == 'd');
 
 							/* Accurate weathear icon */
-						swod = json_object_object_get( wod, "id");
+						json_object_object_get_ex( wod, "id", &swod);
 						lm = sprintf(l, "%s/%d/weather/acode", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", convWCode(json_object_get_int(swod), dayornight) );
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "pressure" );
+						json_object_object_get_ex( wo, "pressure", &wod );
 						lm = sprintf(l, "%s/%d/pressure", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "clouds" );
+						json_object_object_get_ex( wo, "clouds", &wod );
 						lm = sprintf(l, "%s/%d/clouds", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", json_object_get_int(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "humidity" );
+						json_object_object_get_ex( wo, "humidity", &wod );
 						lm = sprintf(l, "%s/%d/humidity", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", json_object_get_int(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "speed" );
+						json_object_object_get_ex( wo, "speed", &wod );
 						lm = sprintf(l, "%s/%d/wind/speed", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%.2lf", json_object_get_double(wod));
 						mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 1);
 
-						wod = json_object_object_get( wo, "deg" );
+						json_object_object_get_ex( wo, "deg", &wod );
 						lm = sprintf(l, "%s/%d/wind/direction", ctx->topic, i) + 2;
 						assert( lm+1 < MAXLINE-10 );
 						sprintf( l+lm, "%d", json_object_get_int(wod));

@@ -101,7 +101,7 @@ printf("*d*\t%p p:%p n:%p\n", an, an->node.prev, an->node.next);
 void init_alerting(void){
 	DLListInit( &alerts );
 
-	if( MQTTClient_subscribe( cfg.client, "Alert/#", 0) != MQTTCLIENT_SUCCESS ){
+	if( mosquitto_subscribe( cfg.client, NULL, "Alert/#", 0) != MOSQ_ERR_SUCCESS ){
 		fputs("Can't subscribe to 'Alert/#'", stderr);
 		exit(EXIT_FAILURE);
 	}

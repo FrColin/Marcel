@@ -8,83 +8,65 @@
  */
 #ifdef UPS
 
-#include "UPS.h"
-#include "MQTT_tools.h"
-
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdio.h>
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <upsclient.h>
+
+#include "UPS.h"
+#include "MQTT_tools.h"
 
 void *process_UPS(void *actx){
 	struct _UPS *ctx = actx;	/* Only to avoid zillions of cast */
-	char l[MAXLINE];
-	struct hostent *server;
-	struct sockaddr_in serv_addr;
-
+	
 		/* Sanity checks */
 	if(!ctx->topic || !ctx->section_name){
 		fputs("*E* configuration error : section name or topic specified, ignoring this section\n", stderr);
 		pthread_exit(0);
 	}
-	if(!ctx->host || !ctx->port){
-		fputs("*E* configuration error : Don't know how to reach NUT\n", stderr);
-		pthread_exit(0);
-	}
-
-	if(!(server = gethostbyname( ctx->host ))){
-		perror( ctx->host );
-		fputs("*E* Stopping this thread\n", stderr);
-		pthread_exit(0);
-	}
-
-	memset( &serv_addr, 0, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_port = htons( ctx->port );
-	memcpy(&serv_addr.sin_addr.s_addr,*server->h_addr_list,server->h_length);
+	
 
 	if(verbose)
 		printf("Launching a processing flow for UPS/%s\n", ctx->section_name);
 
 	for(;;){	/* Infinite loop to process data */
-		int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-		if(sockfd < 0){
-			fprintf(stderr, "*E* Can't create socket : %s\n", strerror( errno ));
-			fputs("*E* Stopping this thread\n", stderr);
-			pthread_exit(0);
-		}
-		if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0){
+		UPSCONN_t ups;
+		
+		if(upscli_connect(&ups, ctx->host, ctx->port, UPSCLI_CONN_TRYSSL) < 0){
 /*AF : Send error topic */
+			// upscli_strerror(UPSCONN_t *ups);
 			perror("*E* Connecting");
 		} else {
 			for(struct var *v = ctx->var_list; v; v = v->next){
-				sprintf(l, "GET VAR %s %s\n", ctx->section_name, v->name);
-				if( send(sockfd, l , strlen(l), 0) == -1 ){
-/*AF : Send error topic */
-					perror("*E* Sending");
+				char ps[MAXLINE], pe[MAXLINE];
+				int	ret;
+				unsigned int numq, numa;
+				const char *query[4];
+				char **answer;
+
+				query[0] = "VAR";
+				query[1] = ctx->section_name;
+				query[2] = v->name;
+				numq = 3;
+
+				ret = upscli_get(&ups, numq, query, &numa, &answer);
+				if ((ret < 0) || (numa < numq)) {
+					if(verbose)
+						printf("*E* %s/%s : unexpected result '(%d) %s'\n", ctx->section_name, v->name, ret, upscli_strerror(&ups));
 				} else {
-					char *ps, *pe;
-					socketreadline(sockfd, l, sizeof(l));
-					if(!( ps = strchr(l, '"')) || !( pe = strchr(ps+1, '"') )){
-						if(verbose)
-							printf("*E* %s/%s : unexpected result '%s'\n", ctx->section_name, v->name, l);
-					} else {
-						ps++; *pe++ = 0;	/* Extract only the result */
-						assert(pe - l + strlen(ctx->topic) + strlen(v->name) + 2 < MAXLINE ); /* ensure there is enough place for the topic name */
-						sprintf( pe, "%s/%s", ctx->topic, v->name );
-						mqttpublish( cfg.client, pe, strlen(ps), ps, 0 );
-						if(verbose)
-							printf("UPS : %s -> '%s'\n", pe, ps);
-					}
+					assert( strlen(ctx->topic) + strlen(v->name) + 2 < MAXLINE ); /* ensure there is enough place for the topic name */
+					sprintf( pe, "%s/%s", ctx->topic, v->name );
+					sprintf( ps, "%s", answer[3] );
+					mqttpublish( cfg.client, pe, strlen(ps), ps, 0 );
+					if(verbose)
+						printf("UPS : %s -> '%s'\n", pe, ps);
 				}
+				
 			}
-			close(sockfd);
+			upscli_disconnect(&ups);
 			sleep( ctx->sample );
 		}
 	}

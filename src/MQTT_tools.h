@@ -8,7 +8,7 @@
 #ifndef MQTT_TOOL_H
 #define MQTT_TOOL_H
 
-#include <MQTTClient.h>
+#include <mosquitto.h>
 
 
 /* Compare 2 strings like strcmp() but s can contain MQTT wildcards
@@ -23,8 +23,8 @@
  * <- -1 : wildcard error
  * <- others : strings are different
  */
-extern int mqtttokcmp(register const char *s, register const char *t);
+extern int mqtttokcmp(const char *s,  const char *t);
 
 /* Publish an MQTT message */
-extern int mqttpublish(MQTTClient client, const char *topic, int length, void *payload, int retained );
+extern int mqttpublish(struct mosquitto * client, const char *topic, int length, void *payload, int retained );
 #endif
