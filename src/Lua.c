@@ -79,7 +79,6 @@ static void publish_json_array ( lua_State *L, json_object *jobj )
 	int arraylen = json_object_array_length(jobj); /*Getting the length of the array*/
 	int i;
 	json_object * jvalue;
-	printf("DEBUG pushing array %d\n", arraylen);
 	for (i=0; i< arraylen; i++){
 		jvalue = json_object_array_get_idx(jobj, i); /*Getting the array element at position i*/
 		lua_push_json_object( L, jvalue);
