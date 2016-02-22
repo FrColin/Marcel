@@ -11,13 +11,14 @@
 #include "Marcel.h"
 #include "Alerting.h"
 #include "MQTT_tools.h"
-
+#include "Freebox.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <libgen.h>		/* dirname ... */
 #include <unistd.h>		/* chdir ... */
+#include <json-c/json.h>
 
 #ifdef LUA
 
@@ -70,6 +71,85 @@ void execUserFuncEvery( struct _Every *ctx ){
 		lua_pop(L, 1);  /* pop NIL from the stack */
 	}
 	pthread_mutex_unlock( &onefunc );
+}
+static void lua_push_json_object( lua_State *L, json_object *jobj );
+
+static void publish_json_array ( lua_State *L, json_object *jobj )
+{
+	int arraylen = json_object_array_length(jobj); /*Getting the length of the array*/
+	int i;
+	json_object * jvalue;
+	printf("DEBUG pushing array %d\n", arraylen);
+	for (i=0; i< arraylen; i++){
+		jvalue = json_object_array_get_idx(jobj, i); /*Getting the array element at position i*/
+		lua_push_json_object( L, jvalue);
+		lua_rawseti(L, -2, i+1);
+	}
+}
+static void lua_push_json_object( lua_State *L, json_object *jobj ) {
+	enum json_type obj_type;
+	enum json_type key_type;
+	obj_type = json_object_get_type(jobj);
+	switch (obj_type) {
+		 case json_type_null: lua_pushnil(L);
+		 break;
+		 case json_type_boolean: lua_pushboolean(L, json_object_get_boolean(jobj));
+		 break;
+		 case json_type_double: lua_pushnumber(L, json_object_get_double(jobj));
+		 break;
+		 case json_type_int: lua_pushinteger(L, json_object_get_int(jobj));
+		 break;
+		 case json_type_string:  lua_pushstring (L, json_object_get_string(jobj));
+		 break;
+		 case json_type_object: 
+			lua_newtable(L);
+			json_object_object_foreach(jobj, key, val) {
+			key_type = json_object_get_type(val);
+			 switch (key_type) {
+				case json_type_null: lua_pushnil(L);
+				break;
+				case json_type_boolean: lua_pushboolean(L, json_object_get_boolean(val));
+				break;
+				case json_type_double: lua_pushnumber(L, json_object_get_double(val));
+				break;
+				case json_type_int: lua_pushinteger(L, json_object_get_int(val));
+				break;
+				case json_type_string:  lua_pushstring (L, json_object_get_string(val));
+				break;
+				case json_type_object: 
+					lua_push_json_object(L, val);
+				break;
+				case json_type_array: 
+					publish_json_array(L,val);
+				break;
+			 }
+			lua_setfield(L, -2, key);
+			}
+		 break;
+		 case json_type_array: 
+			lua_newtable(L);
+			publish_json_array ( L, jobj );
+		 break;
+		 }
+}
+static int lmCallFreeboxApi(lua_State *L){
+	json_object *jdata = NULL;
+	if(lua_gettop(L) < 1 || lua_gettop(L) > 2 ){
+		luaL_argerror (L, 1, "CallFreeboxApi() requires : url [, data ]");
+		return 0;
+	}
+	luaL_checktype(L, 1, LUA_TSTRING);
+	const char *url = luaL_checkstring(L, 1);
+	if(lua_gettop(L) == 2){
+		const char *data = luaL_checkstring(L, 2);
+		jdata = json_tokener_parse(data);
+	}
+	json_object *result = call_freebox_api(url, jdata);
+	if ( result ) {
+		lua_push_json_object(L, result);
+		return 1;
+	}
+	return 0;
 }
 
 static int lmSendMsg(lua_State *L){
@@ -158,6 +238,7 @@ static int lmVersion(lua_State *L){
 }
 
 static const struct luaL_Reg MarcelLib [] = {
+	{"CallFreeboxApi", lmCallFreeboxApi},
 	{"SendMessage", lmSendMsg},
 	{"RiseAlert", lmRiseAlert},		/* ... and send only a mail */
 	{"RiseAlert", lmRiseAlertSMS},	/* ... and send both a mail and a SMS */

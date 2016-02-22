@@ -152,7 +152,7 @@ static void  _check_freebox_api() {
 
 }
 
-static json_object * call_freebox_api(const char* api_url, json_object *data) {
+json_object * call_freebox_api(const char* api_url, json_object *data) {
 	char url[MAXLINE];
  
 	sprintf(url, "%s%sv%c/%s/", FREEBOX_URL, _API_BASE_URL,_API_VERSION, api_url);
@@ -317,7 +317,7 @@ static void publish_json_object (json_object *jobj, const char * topic, const ch
 					publish_json_object (val, topic, object_topic);
 				 break;
 				 case json_type_array: 
-					printf("Freebox : TODO %s json_type_array \n",key);
+					publish_json_array(val, topic, object_topic);
 				 break;
 				 default:
 					value = json_object_get_string(val);
@@ -325,6 +325,7 @@ static void publish_json_object (json_object *jobj, const char * topic, const ch
 					assert( lm+1 < MAXLINE-10 );
 					strcpy( l+lm, value);
 					mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
+				break;
 			 }
 		}
 	}

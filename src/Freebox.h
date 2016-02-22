@@ -13,14 +13,9 @@
 #ifdef FREEBOX
 
 #include "Marcel.h"
-
-#define FBX_HOST	"mafreebox.freebox.fr"
-#define FBX_URI "/pub/fbx_info.txt"
-#define FBX_PORT	80
-
-#define FBX_REQ "GET "FBX_URI" HTTP/1.0\n\n"
+#include <json-c/json.h>
 
 extern void *process_Freebox(void *);
-
+extern json_object * call_freebox_api(const char* api_url, json_object *data);
 #endif
 #endif
