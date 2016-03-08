@@ -7,15 +7,15 @@
  * 08/07/2015	- LF - start v2.0 - make source modular
  */
 
-#ifndef UPS_H
-#define UPS_H
+#ifndef ONEWIRE_H
+#define ONEWIRE_H
 
-#ifdef UPS
+#ifdef ONEWIRE
+
 #include "Marcel.h"
 
-	
-extern Module_t* config_UPS(config_setting_t *cfg);
-extern void *process_UPS(void *);
+extern Module_t* config_OneWire(config_setting_t *cfg);
+extern void *process_OneWire(void *);
 
 #endif
 #endif

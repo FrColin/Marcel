@@ -8,8 +8,6 @@
  */
 #ifdef FREEBOX
 
-#include "Marcel.h"
-
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
@@ -27,16 +25,29 @@
 #include "Freebox.h"
 #include "MQTT_tools.h"
 
+#ifdef LUA
+#include <lauxlib.h>	/* auxlib : usable hi-level function */
+#include <lualib.h>		/* Functions to open libraries */
+#endif
+
 #define FREEBOX_URL "http://mafreebox.freebox.fr"
 
 #define APP_ID "MarcelFbx"
 #define APP_NAME "Marcel Freebox"
 #define APP_VERSION "1.0"
 
+typedef struct _FreeBox {
+		Module_t module;
+		const char *TokenFile;	/* file containing app_token */
+		Var_t *var_list;	/* List of variables to read */
+	} FreeBox_t;
+
 static char _API_BASE_URL[100];
 static char _API_VERSION;
 static char _SESSION_HEADER[256];
 static char _APP_TOKEN[100];
+
+static FreeBox_t ctx;
 
 #define FBX_VERSION FREEBOX_URL"/api_version"
 
@@ -71,7 +82,7 @@ static struct json_object * _check_success(const char*url, struct json_object *j
 	struct json_object *value = NULL;
 	struct json_object *result = NULL;
 	json_object_object_get_ex( jobj, "success", &value);
-	if ( !value || json_object_get_boolean(value) != true)  {
+	if ( !value || !json_object_get_boolean(value) )  {
 		struct json_object *msg = NULL;
 		struct json_object *error_code = NULL;
 		json_object_object_get_ex( jobj, "msg", &msg);
@@ -154,7 +165,7 @@ static void  _check_freebox_api() {
 
 json_object * call_freebox_api(const char* api_url, json_object *data) {
 	char url[MAXLINE];
- 
+	if ( !strlen(_API_BASE_URL) ) return NULL;
 	sprintf(url, "%s%sv%c/%s/", FREEBOX_URL, _API_BASE_URL,_API_VERSION, api_url);
 	json_object * answer = _freebox_api_request(url,data);
 	json_object *result = _check_success(url,answer);
@@ -168,7 +179,7 @@ static int login_freebox(char *app_id, char *app_version, char * app_token) {
 	const char *strchallenge = NULL;
 	unsigned char digest[20];
 	char password[42];
-	int md_len = 20;
+	unsigned int md_len = 20;
 	json_object * answer = call_freebox_api("login", NULL);
 	if (!answer) return 0;
 	json_object_object_get_ex( answer, "challenge", &challenge);
@@ -180,7 +191,7 @@ static int login_freebox(char *app_id, char *app_version, char * app_token) {
 	
 	// Be careful of the length of string with the choosen hash engine. SHA1 produces a 20-byte hash value which rendered as 40 characters.
 	// Change the length accordingly with your choosen hash engine
-	memset( password, sizeof(password), 0);
+	memset( password, 0, sizeof(password));
 	for(int i = 0; i < md_len; i++)
 		sprintf(&password[i*2], "%02x", (unsigned int)digest[i]);
 
@@ -268,7 +279,6 @@ static int loadFreeBoxApptoken( const char *file ){
 }
 static int saveFreeBoxApptoken( const char *file ){
 	FILE *fp;
-	char str[80];
 
 	/* opening file for reading */
 	fp = fopen(file , "w");
@@ -300,7 +310,6 @@ static void publish_json_object (json_object *jobj, const char * topic, const ch
 {
 	enum json_type obj_type;
 	enum json_type key_type;
-	struct json_object *entry = NULL;
 	const char * value;
 	int lm;
 	char l[MAXLINE];
@@ -324,7 +333,7 @@ static void publish_json_object (json_object *jobj, const char * topic, const ch
 					lm = sprintf(l, "%s/%s/%s", topic, subtopic, key) + 2;
 					assert( lm+1 < MAXLINE-10 );
 					strcpy( l+lm, value);
-					mqttpublish( cfg.client, l, strlen(l+lm), l+lm, 0 );
+					mqttpublish( l, strlen(l+lm), l+lm, 0 );
 				break;
 			 }
 		}
@@ -333,24 +342,49 @@ static void publish_json_object (json_object *jobj, const char * topic, const ch
 		publish_json_array(jobj, topic, subtopic );
 	}
 }
-void *process_Freebox(void *actx){
+
+Module_t* config_FreeboxOS(config_setting_t *cfg)
+{		
+	if(verbose) puts("Entering section 'Freebox'");
+	config_Module(cfg, &ctx.module);
+	config_setting_lookup_string(cfg, "TokenFile", &ctx.TokenFile  );
+	ctx.TokenFile = strdup(ctx.TokenFile);
+	config_setting_t *urls = config_lookup_from(cfg, "urls");
+	if ( !(urls && config_setting_is_array(urls)) ){
+		return 0;
+	}
+	if(verbose) printf("reading URLS: ");
+	Var_t *url = 0;
+	for( int i = 0; i <config_setting_length(urls); i++ )
+	{
+		Var_t *v = malloc(sizeof(Var_t));
+		assert(v);
+		v->next = url;
+		v->name = strdup(config_setting_get_string_elem(urls, i ));
+		if(verbose) printf("%s,",v->name);
+		url = v;
+	}
+	if(verbose) puts("\n");
+	ctx.var_list = url;
+	return &ctx.module;
+} 
+void *process_FreeboxOS(void *data){
 	char hostname[HOST_NAME_MAX];
-    struct _FreeBox *ctx = actx;	/* Only to avoid zillions of cast */
-	
+    
 	gethostname(hostname, HOST_NAME_MAX);
 
 	_SESSION_HEADER[0] = '\0';
 	_APP_TOKEN[0] = '\0';
 	/* Sanity checks */
-	if(!ctx->topic){
+	if(!ctx.module.topic){
 		fputs("*E* configuration error : no topic specified, ignoring this section\n", stderr);
 		pthread_exit(0);
 	}
 	/* read saved app_token */
-	if( ctx->file ) {
-		int ok = loadFreeBoxApptoken( ctx->file );
+	if( ctx.TokenFile ) {
+		int ok = loadFreeBoxApptoken( ctx.TokenFile );
 		if ( ok < 0 ) 
-			fprintf(stderr,"*E* Freebox : reading App-token in '%s'\n", ctx->file);
+			fprintf(stderr,"*E* Freebox : reading App-token in '%s'\n", ctx.TokenFile);
 	}
 	if(verbose)
 		printf("Launching a processing flow for Freebox\n");
@@ -364,7 +398,7 @@ void *process_Freebox(void *actx){
 			fputs("*E* Freebox : App-Auth denied\n", stderr);
 			pthread_exit(0);
 		} else {
-			saveFreeBoxApptoken( ctx->file );
+			saveFreeBoxApptoken( ctx.TokenFile );
 		}
 	}
 	if(verbose)
@@ -380,7 +414,7 @@ void *process_Freebox(void *actx){
 	
 	for(;;){	/* Infinite loop to process data */
 		json_object *answer;
-		for(struct var *v = ctx->var_list; v; v = v->next){
+		for(Var_t *v = ctx.var_list; v; v = v->next){
 			answer=call_freebox_api(v->name, NULL);
 			if ( !answer ) {
 				fprintf(stderr, "*E* %s error : no answer\n",v->name);
@@ -389,9 +423,9 @@ void *process_Freebox(void *actx){
 			if ( verbose )
 				printf("Freebox : %s -> %s \n", v->name, json_object_get_string(answer));
 			
-			publish_json_object( answer, ctx->topic, v->name);
+			publish_json_object( answer, ctx.module.topic, v->name);
 		}
-		sleep( ctx->sample );
+		sleep( ctx.module.sample );
 	}
 
 	pthread_exit(0);

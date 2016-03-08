@@ -11,18 +11,18 @@
 #ifndef DLIST_H
 #define DLIST_H
 
-struct DLNode {
-	struct DLNode *prev;
-	struct DLNode *next;
-};
+typedef struct _DLNode {
+	struct _DLNode *prev;
+	struct _DLNode *next;
+} DLNode_t;
 
-struct DList {
-	struct DLNode *first;
-	struct DLNode *last;
-};
+typedef struct _DList {
+	DLNode_t *first;
+	DLNode_t *last;
+} DList_t;
 
-void DLListInit( struct DList * );
-void DLAdd( struct DList *, struct DLNode * );
-void DLRemove( struct DList *, struct DLNode * );
+void DLListInit( DList_t * );
+void DLAdd( DList_t *, DLNode_t * );
+void DLRemove( DList_t *, DLNode_t * );
 
 #endif

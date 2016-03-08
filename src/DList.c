@@ -7,16 +7,17 @@
  *
  * 16/07/2015 LF - Creation
  */
-#include "DList.h"
 
 #include <stddef.h>
 #include <stdio.h>
+#include "DList.h"
 
-void DLListInit( struct DList *l ){
+
+void DLListInit( DList_t *l ){
 	l->first = l->last = NULL;
 }
 
-void DLAdd( struct DList *l, struct DLNode *n ){
+void DLAdd( DList_t *l, DLNode_t *n ){
 	n->next = NULL;
 	if(!(n->prev = l->last))	/* The list is empty */
 		l->first = n;
@@ -25,7 +26,7 @@ void DLAdd( struct DList *l, struct DLNode *n ){
 	l->last = n;
 }
 
-void DLRemove( struct DList *l, struct DLNode *n ){
+void DLRemove( DList_t *l, DLNode_t *n ){
 	if(n->next)
 		n->next->prev = n->prev;
 	else	/* Last of the list */

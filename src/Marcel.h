@@ -10,11 +10,8 @@
 #ifndef MARCEL_H
 #define MARCEL_H
 
-#define _POSIX_C_SOURCE 200112L	/* Otherwise some defines/types are not defined with -std=c99 */
-
 #include <pthread.h>
-#include <mosquitto.h> /* mosquitto library needed */ 
-
+#include <libconfig.h>
 
 #define VERSION "4.4"	/* Need to stay numerique as exposed to Lua */
 
@@ -22,128 +19,35 @@
 #define MAXLINE 1024	/* Maximum length of a line to be read */
 #define BRK_KEEPALIVE 60	/* Keep alive signal to the broker */
 
-	/* Configuration / context */
-enum _tp_msec {
-	MSEC_INVALID =0,	/* Ignored */
-	MSEC_FFV,			/* File String Value */
-	MSEC_FREEBOX,		/* FreeBox */
-	MSEC_UPS,			/* UPS */
-	MSEC_DEADPUBLISHER,	/* alarm on missing MQTT messages */
-	MSEC_EVERY,			/* Launch a function at given interval */
-	MSEC_METEO3H,		/* 3H meteo */
-	MSEC_METEOD			/* Daily meteo */
-};
 
-struct var {	/* Storage for var list */
-	struct var *next;
+typedef void * (*process_f) (void*);
+
+
+typedef struct _Module {
+	struct _Module *next;
+	const char *name;	/* module name */
+	int sample;			/* Delay b/w 2 queries */
+	pthread_t thread;	/* Child to handle this section */
+	const char *topic;	/* Root of the topics to publish to */
+	process_f process;
+	} Module_t;
+
+
+typedef struct _Var {	/* Storage for var list */
+	struct _Var *next;
 	const char *name;
-};
+} Var_t;
+/* The functions we will find in the plugin */
+typedef  Module_t * (*config_f) (config_setting_t *cfg);
 
-union CSection {
-	struct {	/* Fields common to all sections */
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;
-		pthread_t thread;	/* Child to handle this section */
-		const char *topic;
-	} common;
-	struct _FFV {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* delay b/w 2 samples */
-		pthread_t thread;
-		const char *topic;	/* Topic to publish to */
-		const char *file;	/* File containing the data to read */
-	} FFV;
-	struct _FreeBox {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* delay b/w 2 samples */
-		pthread_t thread;	
-		const char *topic;	/* Root of the topics to publish to */
-		const char *file;	/* file containing app_token */
-		struct var *var_list;	/* List of variables to read */
-	} FreeBox;
-	struct _UPS {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* delay b/w 2 samples */
-		pthread_t thread;
-		const char *topic;	/* Root of the topics to publish to */
-		const char *section_name;	/* Name of the UPS as defined in NUT */
-		const char *host;	/* NUT's server */
-		int port;			/* NUT's port */
-		struct var *var_list;	/* List of variables to read */
-	} Ups;
-	struct _DeadPublisher {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* Timeout */
-		pthread_t thread;
-		const char *topic;	/* Topic to wait data from */
-		const char *funcname;	/* User function to call on data arrival */
-		int funcid;			/* Function id in Lua registry */
-		const char *errorid;	/* Error's name */
-		int rcv;			/* Event for data receiving */
-		int inerror;		/* true if this DPD is in error */
-	} DeadPublisher;
-	struct _Every {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* Delay b/w launches */
-		pthread_t thread;
-		const char *name;	/* Name of the section, passed to Lua function */
-		const char *funcname;	/* Function to be called */
-		int funcid;			/* Function id in Lua registry */
-	} Every;
-	struct _Meteo {
-		union CSection *next;
-		enum _tp_msec section_type;
-		int sample;			/* Delay b/w 2 queries */
-		pthread_t thread;	/* Child to handle this section */
-		const char *topic;	/* Root of the topics to publish to */
-		const char *City;	/* CityName,Country to query */
-		const char *Units;	/* Result's units */
-		const char *Lang;	/* Result's language */
-	} Meteo;
-};
-
-struct Config {
-	union CSection *sections;	/* Sections' list */
-	const char *Broker;			/* Broker's host */
-	int BrokerPort;				/* Broker's port */
-	const char *ClientID;		/* Marcel client id : must be unique among a broker clients */
-	struct mosquitto * client;
-	int DPDlast;				/* Dead Publisher Detect are grouped at the end of sections list */
-	int ConLostFatal;			/* Die if broker connection is lost */
-	union CSection *first_DPD;	/* Pointer to the first DPD */
-	const char *SMSurl;			/* Where to send SMS */
-	const char *AlertCmd;		/* External command to send alerts */
-	const char *luascript;		/* file containing Lua functions */
-} cfg;
 
 	/* Helper functions */
 extern int verbose;
+extern int config_Module(config_setting_t *cfg, Module_t *module);
 
-extern char *removeLF(char *);
-extern char *striKWcmp( char *, const char * );
-extern char *mystrdup(const char *);
-#define strdup(s) mystrdup(s)
-
-extern size_t socketreadline( int, char *, size_t);
 
 	/* Broker related */
 extern int papub( const char *, int, void *, int);
 
-	/* Lua related */
-#ifdef LUA
-#include <lua.h>		/* Lua's Basic */
-extern lua_State *L;
-
-extern void init_Lua( const char * );
-extern int findUserFunc( const char * );
-extern void execUserFuncDeadPublisher( struct _DeadPublisher *, const char *, const char *);
-extern void execUserFuncEvery( struct _Every * );
-#endif
 #endif
 

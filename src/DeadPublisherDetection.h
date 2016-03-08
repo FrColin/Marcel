@@ -12,5 +12,6 @@
 
 #include "Marcel.h"
 
+extern Module_t* config_DPD(config_setting_t *cfg);
 extern void *process_DPD(void *);
 #endif

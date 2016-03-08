@@ -11,11 +11,13 @@
 #define FREEBOX_H
 
 #ifdef FREEBOX
-
-#include "Marcel.h"
+#include <libconfig.h>
 #include <json-c/json.h>
 
-extern void *process_Freebox(void *);
+#include "Marcel.h"
+
+extern Module_t* config_FreeboxOS(config_setting_t *cfg);
+extern void *process_FreeboxOS(void *);
 extern json_object * call_freebox_api(const char* api_url, json_object *data);
 #endif
 #endif

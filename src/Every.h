@@ -10,5 +10,9 @@
 #ifndef EVERY_H
 #define EVERY_H
 
+#include <libconfig.h>
+#include "Marcel.h"
+
+extern Module_t* config_Every(config_setting_t *cfg);
 extern void *process_Every(void *);
 #endif
