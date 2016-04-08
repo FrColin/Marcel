@@ -225,6 +225,8 @@ static void lua_push_json_object( lua_State *L, json_object *jobj ) {
 }
 
 static int lmCallFreeboxApi(lua_State *L){
+	int res = 0;
+	pthread_mutex_lock( &onefunc );
 	json_object *jdata = NULL;
 	if(lua_gettop(L) < 1 || lua_gettop(L) > 2 ){
 		luaL_argerror (L, 1, "CallFreeboxApi() requires : url [, data ]");
@@ -239,9 +241,10 @@ static int lmCallFreeboxApi(lua_State *L){
 	json_object *result = call_freebox_api(url, jdata);
 	if ( result ) {
 		lua_push_json_object(L, result);
-		return 1;
+		res = 1;
 	}
-	return 0;
+	pthread_mutex_unlock( &onefunc );
+	return res;
 }
 #endif
 static const struct luaL_Reg MarcelLib [] = {

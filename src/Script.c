@@ -63,10 +63,12 @@ Module_t* config_Scripts(config_setting_t *cfg)
 		int len = config_setting_length (dpds_cfg);
 		for ( int index =0; index < len ; index ++ ){
 			config_setting_t * dpd_cfg = config_setting_get_elem(dpds_cfg, index );
-			Module_t *md = config_DPD(dpd_cfg);
-			Module_Node_t *node = malloc(sizeof(Module_Node_t));
-			node->module = md;
-			DLAdd( &ctx.dpds, &node->node );
+			if ( dpd_cfg ) {
+				Module_t *md = config_DPD(dpd_cfg);
+				Module_Node_t *node = malloc(sizeof(Module_Node_t));
+				node->module = md;
+				DLAdd( &ctx.dpds, &node->node );
+			}
 		}
 	}
 	if(verbose) {
